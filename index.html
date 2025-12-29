@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Ponto Eletrônico</title>
+  <style>
+    :root {
+      --primary:#2563eb; --success:#16a34a; --danger:#dc2626;
+      --bg:#f4f6f8; --card:#ffffff; --text:#1f2937; --muted:#6b7280;
+    }
+    *{box-sizing:border-box;font-family:system-ui,sans-serif}
+    body{margin:0;background:var(--bg);color:var(--text);display:flex;justify-content:center;align-items:center;min-height:100vh}
+    .card{background:var(--card);width:100%;max-width:560px;border-radius:16px;padding:24px;box-shadow:0 10px 30px rgba(0,0,0,.08)}
+    h1{text-align:center;margin-bottom:6px}
+    .date{text-align:center;color:var(--muted);margin-bottom:6px}
+    .clock{text-align:center;font-size:2.2rem;margin-bottom:6px}
+    .status{text-align:center;font-weight:600;margin-bottom:12px}
+    .status.trabalhando{color:var(--success)}
+    .status.fora{color:var(--danger)}
+    .buttons{display:flex;gap:12px;margin-bottom:16px}
+    button{flex:1;padding:14px;border:none;border-radius:12px;color:#fff;font-size:1rem;cursor:pointer}
+    .entrada{background:var(--success)}
+    .saida{background:var(--danger)}
+    button:disabled{opacity:.5;cursor:not-allowed}
+    .mes{margin-top:20px}
+    .mes h3{margin-bottom:8px;color:var(--primary)}
+    .dia{background:#f9fafb;padding:12px;border-radius:10px;margin-bottom:10px}
+    .linha{display:flex;justify-content:space-between;font-size:.9rem;margin:4px 0}
+    .muted{color:var(--muted)}
+  </style>
+</head>
+<body>
+<div class="card">
+  <h1>Ponto Eletrônico</h1>
+  <div class="date" id="date"></div>
+  <div class="clock" id="clock"></div>
+  <div class="status fora" id="status">Fora do expediente</div>
+
+  <div class="buttons">
+    <button class="entrada" id="btnEntrada" onclick="registrarEntrada()">Entrada</button>
+    <button class="saida" id="btnSaida" onclick="registrarSaida()" disabled>Saída</button>
+  </div>
+
+  <div id="registros"></div>
+</div>
+
+<script>
+const clockEl=document.getElementById('clock');
+const dateEl=document.getElementById('date');
+const registrosEl=document.getElementById('registros');
+const statusEl=document.getElementById('status');
+const btnEntrada=document.getElementById('btnEntrada');
+const btnSaida=document.getElementById('btnSaida');
+
+const CARGA_DIARIA_MIN=6*60; // 6h
+
+function agora(){return new Date()}
+function dataKey(d){return d.toISOString().split('T')[0]}
+
+function carregar(){return JSON.parse(localStorage.getItem('pontos')||'{}')}
+function salvar(d){localStorage.setItem('pontos',JSON.stringify(d))}
+
+function trabalhando(regs){return regs.length%2===1}
+
+function registrarEntrada(){
+  const data=carregar();
+  const d=agora();
+  const key=dataKey(d);
+  data[key]=data[key]||[];
+  if(trabalhando(data[key]))return;
+  data[key].push(d.toISOString());
+  salvar(data);
+  atualizarEstado();
+  renderizar();
+}
+
+function registrarSaida(){
+  const data=carregar();
+  const d=agora();
+  const key=dataKey(d);
+  data[key]=data[key]||[];
+  if(!trabalhando(data[key]))return;
+  data[key].push(d.toISOString());
+  salvar(data);
+  atualizarEstado();
+  renderizar();
+}
+
+function minutosTrabalhados(regs){
+  let total=0;
+  for(let i=0;i<regs.length-1;i+=2){
+    total+=(new Date(regs[i+1])-new Date(regs[i]))/60000;
+  }
+  return Math.round(total);
+}
+
+function fmt(min){
+  const s=min<0?'-':'';
+  min=Math.abs(min);
+  return s+String(Math.floor(min/60)).padStart(2,'0')+':'+String(min%60).padStart(2,'0');
+}
+
+function atualizarEstado(){
+  const data=carregar();
+  const hoje=dataKey(agora());
+  const regs=data[hoje]||[];
+  const on=trabalhando(regs);
+  statusEl.textContent=on?'Trabalhando':'Fora do expediente';
+  statusEl.className='status '+(on?'trabalhando':'fora');
+  btnEntrada.disabled=on;
+  btnSaida.disabled=!on;
+}
+
+function renderizar(){
+  const data=carregar();
+  registrosEl.innerHTML='';
+
+  const datas=Object.keys(data).sort((a,b)=>b.localeCompare(a));
+  const meses={};
+  datas.forEach(d=>{const m=d.slice(0,7);(meses[m]=meses[m]||[]).push(d)});
+
+  for(const mes in meses){
+    const dm=document.createElement('div');dm.className='mes';dm.innerHTML=`<h3>${mes}</h3>`;
+
+    meses[mes].forEach(dia=>{
+      const regs=data[dia];
+      const total=minutosTrabalhados(regs);
+      const saldo=total-CARGA_DIARIA_MIN;
+
+      const dd=document.createElement('div');dd.className='dia';
+      dd.innerHTML=`
+        <div class="linha"><strong>${dia}</strong><span class="muted">${fmt(total)}</span></div>
+        ${regs.map((r,i)=>`<div class="linha"><span>${i%2===0?'Entrada':'Saída'}</span><span>${new Date(r).toLocaleTimeString('pt-BR')}</span></div>`).join('')}
+        <div class="linha"><span>Saldo do dia</span><strong>${fmt(saldo)}</strong></div>`;
+      dm.appendChild(dd);
+    });
+
+    registrosEl.appendChild(dm);
+  }
+}
+
+function atualizarRelogio(){
+  const d=agora();
+  clockEl.textContent=d.toLocaleTimeString('pt-BR');
+  dateEl.textContent=d.toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'long',year:'numeric'});
+}
+
+setInterval(atualizarRelogio,1000);
+renderizar();atualizarEstado();atualizarRelogio();
+</script>
+</body>
+</html>
